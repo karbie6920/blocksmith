@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dobot Console</title>
+<style>
+  :root {
+    --bg: #0e1114; --panel: #161b20; --panel2: #1d242b; --line: #2a333c;
+    --text: #e6ebef; --muted: #8b98a5; --accent: #f2a900; --accent-ink: #1a1300;
+    --ok: #3ecf8e; --warn: #f2a900; --err: #ff5d5d; --stop: #e5383b;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 400px; height: 100vh; }
+  .view { position: relative; min-height: 320px; border-right: 1px solid var(--line); }
+  #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  .hud { position: absolute; left: 16px; top: 16px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
+  .chip { background: rgba(22,27,32,.86); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .chip small { display: block; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  .chip b { font: 600 18px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+  .legend { position: absolute; left: 16px; bottom: 14px; color: var(--muted); font-size: 12px; pointer-events: none; }
+  .legend i { display: inline-block; width: 10px; height: 3px; margin: 0 5px 3px 12px; vertical-align: middle; }
+  .legend i:first-child { margin-left: 0; }
+  .viewmsg { position: absolute; left: 16px; top: 78px; max-width: 460px; background: rgba(22,27,32,.9); border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+  .cam { position: absolute; right: 16px; bottom: 16px; width: min(380px, 42%); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .cam.big { width: min(calc(100% - 32px), 1100px); }
+  .cambar { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 10px; font-size: 12px; color: var(--muted); }
+  .cambar #camPx { flex: 1; font-family: var(--mono); color: var(--text); }
+  .cambar button { background: transparent; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; padding: 2px 8px; }
+  .camwrap { position: relative; line-height: 0; }
+  .camwrap img { width: 100%; display: block; cursor: crosshair; }
+  .camwrap i { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--accent); border-radius: 50%; box-shadow: 0 0 0 1px #000; pointer-events: none; }
+  .status { position: absolute; right: 16px; top: 16px; display: flex; align-items: center; gap: 8px;
+            background: rgba(22,27,32,.86); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--err); }
+  .dot.live { background: var(--ok); } .dot.busy { background: var(--accent); }
+  .side { display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+  .scroll { flex: 1; overflow-y: auto; min-height: 0; }
+  section { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  h2 { margin: 0 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; min-height: 38px; }
+  .btn:hover { border-color: #3b4854; } .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.on { border-color: var(--ok); color: var(--ok); }
+  .btn.stop { background: var(--stop); border-color: var(--stop); color: #fff; font-weight: 700; letter-spacing: .05em; flex: 1; min-height: 46px; }
+  .stopbar { display: flex; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .btn.stop small { font-weight: 400; opacity: .75; margin-left: 6px; letter-spacing: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 7px 10px; cursor: pointer; font-family: var(--mono); min-width: 40px; }
+  .seg button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .jog { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .axis { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; }
+  .axis span { display: block; font: 600 13px var(--mono); margin-bottom: 6px; }
+  .axis small { display: block; color: var(--muted); font-size: 10px; margin-top: 5px; min-height: 13px; }
+  .axis .pm { display: flex; gap: 6px; }
+  .axis .pm button { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px 0; cursor: pointer; font: 600 16px var(--mono); }
+  .axis .pm button:hover { border-color: var(--accent); color: var(--accent); }
+  .axis .pm button:disabled { opacity: .4; cursor: not-allowed; }
+  label.small { color: var(--muted); font-size: 12px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .chat { display: flex; flex-direction: column; gap: 8px; }
+  .msgs { display: flex; flex-direction: column; gap: 8px; }
+  .msg { padding: 8px 10px; border-radius: 10px; max-width: 94%; overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; background: #2b3540; }
+  .msg.bot { align-self: flex-start; background: var(--panel2); border: 1px solid var(--line); }
+  .msg.err { align-self: flex-start; border: 1px solid var(--err); color: #ffb3b3; }
+  .plan { margin: 8px 0 0; padding: 0 0 0 20px; font-family: var(--mono); font-size: 12.5px; }
+  .plan li { margin: 2px 0; }
+  .warns { margin: 8px 0 0; color: var(--warn); font-size: 12.5px; }
+  .composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+  .composer input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .composer input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .log { font: 12px/1.5 var(--mono); color: var(--muted); max-height: 150px; overflow-y: auto; }
+  .log div.error { color: var(--err); } .log div.warn { color: var(--warn); }
+  .hint { color: var(--muted); font-size: 12px; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 46vh auto; height: auto; min-height: 100vh; }
+    .view { border-right: 0; border-bottom: 1px solid var(--line); }
+    .status { top: 70px; }
+    .viewmsg { top: 112px; }
+    .cam { bottom: 52px; }
+    .stopbar { position: sticky; top: 0; z-index: 2; background: var(--panel); }
+    .scroll { overflow: visible; }
+    .composer { position: sticky; bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="view">
+    <canvas id="scene"></canvas>
+    <div class="hud">
+      <div class="chip"><small>X mm</small><b id="px">—</b></div>
+      <div class="chip"><small>Y mm</small><b id="py">—</b></div>
+      <div class="chip"><small>Z mm</small><b id="pz">—</b></div>
+      <div class="chip"><small>R °</small><b id="pr">—</b></div>
+    </div>
+    <div class="viewmsg" id="viewMsg" hidden></div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Łączenie…</span></div>
+    <div class="cam" id="cam" hidden>
+      <div class="cambar"><span>Kamera</span><span id="camPx"></span><button type="button" id="camSize" title="Powiększ / pomniejsz">⤢</button></div>
+      <div class="camwrap"><img id="camImg" alt="Obraz z kamery nad stołem roboczym"><i id="camMark" hidden></i></div>
+    </div>
+    <div class="legend"><i style="background:#ff5d5d"></i>X przód<i style="background:#3ecf8e"></i>Y lewo<i style="background:#5aa9ff"></i>Z góra<i style="background:#f2a900"></i>ślad końcówki &nbsp;·&nbsp; przeciągnij, aby obrócić, kółko = zoom</div>
+  </div>
+
+  <div class="side">
+    <div class="stopbar"><button class="btn stop" id="stop">STOP <small>Esc</small></button></div>
+    <div class="scroll">
+      <section>
+        <div class="row">
+          <button class="btn" id="home">Pozycja domowa</button>
+          <button class="btn" id="homing">Bazowanie</button>
+          <button class="btn" id="suction">Przyssawka: wył.</button>
+        </div>
+        <div class="row">
+          <label class="small" for="vel">Prędkość</label>
+          <input type="range" id="vel" min="10" max="100" step="5" value="50">
+          <span id="velText" style="font-family:var(--mono);width:42px;text-align:right">50%</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Sterowanie ręczne</h2>
+        <div class="row" style="margin-bottom:10px">
+          <label class="small">Krok</label>
+          <div class="seg" id="steps">
+            <button data-v="1">1</button><button data-v="5">5</button><button data-v="10" class="sel">10</button><button data-v="20">20</button><button data-v="50">50</button>
+          </div>
+          <span class="hint">mm lub °</span>
+        </div>
+        <div class="jog" id="jogCart"></div>
+        <div class="jog" id="jogJoint" style="margin-top:8px"></div>
+        <p class="hint" style="margin:10px 0 0">Ramię prowadzone ręką (przycisk Unlock na przedramieniu) też jest widoczne na modelu na żywo.</p>
+      </section>
+
+      <section>
+        <h2>Polecenia tekstowe <span id="model" style="text-transform:none;letter-spacing:0"></span></h2>
+        <div class="chat">
+          <div class="msgs" id="msgs">
+            <div class="msg bot">Napisz, co robot ma zrobić, np. „podnieś się o 3 cm”, „obróć podstawę o 30 stopni w lewo”, „jedź do x 220 y 50 z 20 i włącz przyssawkę”.</div>
+          </div>
+          <label class="small"><input type="checkbox" id="auto"> Wykonuj od razu, bez potwierdzania planu</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Dziennik</h2>
+        <div class="log" id="log"></div>
+      </section>
+    </div>
+    <form class="composer" id="form">
+      <input id="prompt" placeholder="Polecenie dla robota…" autocomplete="off">
+      <button class="btn primary" id="send">Wyślij</button>
+    </form>
+  </div>
+</div>
+
+<script>
+// Three.js: local copy from the Jetson first, then the CDN. Without Three.js or WebGL: simplified view.
+function boot() {
+  const force2d = new URLSearchParams(location.search).has('2d');
+  const hasGL = () => { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; } };
+  if (force2d) return startFallback('Widok uproszczony (wymuszony parametrem ?2d).');
+  if (!window.THREE) return startFallback('Widok uproszczony: biblioteka Three.js się nie wczytała (brak pliku three.min.js w ~/dobot_web i brak dostępu do CDN).');
+  if (!hasGL()) return startFallback('Widok uproszczony: ta przeglądarka nie udostępnia WebGL, więc Three.js nie może rysować.');
+  try { start(); } catch (e) { startFallback('Widok uproszczony: błąd uruchamiania Three.js (' + e.message + ').'); }
+}
+(function load(srcs) {
+  if (!srcs.length) return boot();
+  const s = document.createElement('script');
+  s.src = srcs[0];
+  s.onload = () => window.THREE ? boot() : load(srcs.slice(1));
+  s.onerror = () => load(srcs.slice(1));
+  document.head.appendChild(s);
+})(['three.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js']);
+
+const $ = id => document.getElementById(id);
+const L1 = 135, L2 = 147, BASE_H = 138;     // mm: rear arm, forearm, height of the J2 axis above the table
+let state = null, step = 10, view3d = null, pendingPlan = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: 'Błędna odpowiedź serwera.' }));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+function flash(msg) { addMsg('err', msg); }
+async function act(path, body) { try { await api(path, body || {}); } catch (e) { flash(e.message); } }
+
+// ---------- manual panel ----------
+function buildJog() {
+  const cart = [['x', 'X', 'przód / tył'], ['y', 'Y', 'lewo / prawo'], ['z', 'Z', 'góra / dół'], ['r', 'R', 'obrót narzędzia']];
+  $('jogCart').innerHTML = cart.map(([a, n, d]) =>
+    `<div class="axis"><span>${n}</span><div class="pm"><button data-jog data-mode="cart" data-axis="${a}" data-s="-1">−</button><button data-jog data-mode="cart" data-axis="${a}" data-s="1">+</button></div><small>${d}</small></div>`).join('');
+  $('jogJoint').innerHTML = [1, 2, 3, 4].map(j =>
+    `<div class="axis"><span>J${j}</span><div class="pm"><button data-jog data-mode="joint" data-joint="${j}" data-s="-1">−</button><button data-jog data-mode="joint" data-joint="${j}" data-s="1">+</button></div><small id="j${j}">—</small></div>`).join('');
+  document.querySelectorAll('[data-jog]').forEach(b => b.addEventListener('click', () => {
+    const d = step * Number(b.dataset.s);
+    act('/api/jog', b.dataset.mode === 'joint'
+      ? { mode: 'joint', joint: Number(b.dataset.joint), delta: d }
+      : { mode: 'cart', axis: b.dataset.axis, delta: d });
+  }));
+  $('steps').addEventListener('click', e => {
+    if (!e.target.dataset.v) return;
+    step = Number(e.target.dataset.v);
+    [...$('steps').children].forEach(c => c.classList.toggle('sel', c === e.target));
+  });
+}
+$('stop').onclick = () => act('/api/stop');
+$('home').onclick = () => act('/api/home');
+$('homing').onclick = () => { if (confirm('Bazowanie obraca ramię w pełnym zakresie. Czy przestrzeń wokół robota jest pusta?')) act('/api/homing'); };
+$('suction').onclick = () => act('/api/suction', { on: !(state && state.suction) });
+$('vel').oninput = e => { $('velText').textContent = e.target.value + '%'; };
+$('vel').onchange = e => act('/api/speed', { vel: Number(e.target.value) / 100 });
+addEventListener('keydown', e => { if (e.key === 'Escape') act('/api/stop'); });
+
+// ---------- chat ----------
+function addMsg(kind, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + kind; d.textContent = text;
+  $('msgs').appendChild(d); d.scrollIntoView({ block: 'nearest' });
+  return d;
+}
+function clearPlan(note) {
+  if (!pendingPlan) return;
+  pendingPlan.buttons.remove();
+  if (note) { const s = document.createElement('div'); s.className = 'hint'; s.textContent = note; pendingPlan.el.appendChild(s); }
+  pendingPlan = null;
+  if (view3d) view3d.setPreview([]);
+}
+async function runPlan() {
+  const p = pendingPlan; if (!p) return;
+  try { await api('/api/execute', { actions: p.actions }); clearPlan('Wysłano do robota.'); }
+  catch (e) { flash(e.message); }
+}
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = $('prompt').value.trim(); if (!text) return;
+  clearPlan('Pominięto.');
+  $('prompt').value = ''; addMsg('user', text);
+  const wait = addMsg('bot', 'Model układa plan…');
+  $('send').disabled = true;
+  try {
+    const r = await api('/api/chat', { prompt: text });
+    wait.textContent = r.say || (r.actions.length ? 'Plan:' : 'Brak akcji do wykonania.');
+    if (r.model) $('model').textContent = '· ' + r.model;
+    if (r.actions.length) {
+      const ol = document.createElement('ol'); ol.className = 'plan';
+      r.actions.forEach(a => { const li = document.createElement('li'); li.textContent = a.text; ol.appendChild(li); });
+      wait.appendChild(ol);
+    }
+    if (r.warnings.length) {
+      const w = document.createElement('div'); w.className = 'warns'; w.textContent = '⚠ ' + r.warnings.join(' · '); wait.appendChild(w);
+    }
+    if (r.actions.length) {
+      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '10px';
+      const go = document.createElement('button'); go.className = 'btn primary'; go.textContent = 'Wykonaj'; go.type = 'button';
+      const no = document.createElement('button'); no.className = 'btn'; no.textContent = 'Odrzuć'; no.type = 'button';
+      row.append(go, no); wait.appendChild(row);
+      pendingPlan = { el: wait, buttons: row, actions: r.actions };
+      go.onclick = runPlan; no.onclick = () => clearPlan('Odrzucono.');
+      if (view3d) view3d.setPreview(r.preview);
+      if ($('auto').checked && !r.warnings.length) runPlan();
+    }
+    wait.scrollIntoView({ block: 'nearest' });
+  } catch (err) { wait.className = 'msg err'; wait.textContent = err.message; }
+  $('send').disabled = false; $('prompt').focus();
+});
+
+// ---------- state ----------
+const fmt = (v, n = 1) => (v == null || !isFinite(v)) ? '—' : v.toFixed(n);
+let lastLogId = 0;
+function render(s) {
+  state = s;
+  const p = s.live ? s.pose : null;
+  $('px').textContent = fmt(p && p[0]); $('py').textContent = fmt(p && p[1]);
+  $('pz').textContent = fmt(p && p[2]); $('pr').textContent = fmt(p && p[3]);
+  if (s.joints) s.joints.forEach((v, i) => { $('j' + (i + 1)).textContent = fmt(v) + '°'; });
+  $('dot').className = 'dot' + (s.live ? (s.busy ? ' busy' : ' live') : '');
+  $('statusText').textContent = !s.live ? 'Sterownik Dobota nie odpowiada' : (s.busy ? (s.current || 'Ruch…') : 'Gotowy');
+  $('suction').textContent = 'Przyssawka: ' + (s.suction ? 'wł.' : 'wył.');
+  $('suction').classList.toggle('on', !!s.suction);
+  document.querySelectorAll('[data-jog], #home, #homing').forEach(b => { b.disabled = !s.live || s.busy; });
+  if (s.model && !$('model').textContent) $('model').textContent = '· ' + s.model;
+  s.log.filter(l => l.id > lastLogId).forEach(l => {
+    const d = document.createElement('div'); d.className = l.level; d.textContent = l.t + '  ' + l.msg;
+    $('log').appendChild(d); lastLogId = l.id; $('log').scrollTop = $('log').scrollHeight;
+  });
+  if (view3d) view3d.update(s);
+  $('cam').hidden = !s.camera && !$('camImg').src;
+}
+
+// ---------- camera ----------
+let camUrl = null;
+async function camLoop() {
+  let wait = 1000;
+  if (state && state.camera) {
+    try {
+      const r = await fetch('/api/camera.jpg?t=' + Date.now());
+      if (r.ok) {
+        const url = URL.createObjectURL(await r.blob()), old = camUrl;
+        $('camImg').src = camUrl = url; if (old) setTimeout(() => URL.revokeObjectURL(old), 500);
+        wait = 100;
+      }
+    } catch (e) { /* server temporarily unavailable */ }
+  }
+  setTimeout(camLoop, wait);
+}
+$('camSize').onclick = () => $('cam').classList.toggle('big');
+$('camImg').addEventListener('click', e => {
+  const im = e.currentTarget; if (!im.naturalWidth) return;
+  const fx = e.offsetX / im.clientWidth, fy = e.offsetY / im.clientHeight;
+  $('camPx').textContent = `piksel ${Math.round(fx * im.naturalWidth)}, ${Math.round(fy * im.naturalHeight)}  (${im.naturalWidth}×${im.naturalHeight})`;
+  const m = $('camMark'); m.hidden = false; m.style.left = fx * 100 + '%'; m.style.top = fy * 100 + '%';
+});
+async function poll() {
+  try { render(await api('/api/state')); }
+  catch (e) { $('dot').className = 'dot'; $('statusText').textContent = 'Brak połączenia z serwerem'; }
+  setTimeout(poll, 100);
+}
+
+// ---------- shared by both views ----------
+function solve(s) {            // returns {j1,j2,j3} in radians
+  if (s.joints) return { j1: s.joints[0] * Math.PI / 180, j2: s.joints[1] * Math.PI / 180, j3: s.joints[2] * Math.PI / 180 };
+  const p = s.pose || s.home;  // no angles: inverse kinematics from the tool position
+  const r = Math.hypot(p[0], p[1]), z = p[2], d = Math.min(Math.hypot(r, z), L1 + L2 - 1);
+  const el = Math.atan2(z, r), a = Math.acos((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d));
+  const sh = el + a;           // rear arm angle from horizontal
+  const ex = L1 * Math.cos(sh), ez = L1 * Math.sin(sh);
+  return { j1: Math.atan2(p[1], p[0]), j2: Math.PI / 2 - sh, j3: -Math.atan2(z - ez, r - ex) };
+}
+const orbit = { az: 0.75, pol: 1.12, dist: 780, target: [130, -40, 0] };
+function attachOrbit(canvas) {
+  let drag = null;
+  canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing'; });
+  canvas.addEventListener('pointermove', e => {
+    if (!drag) return;
+    orbit.az -= (e.clientX - drag.x) * 0.006; orbit.pol = Math.min(1.5, Math.max(0.12, orbit.pol - (e.clientY - drag.y) * 0.006));
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  const end = () => { drag = null; canvas.style.cursor = 'grab'; };
+  canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('wheel', e => { e.preventDefault(); orbit.dist = Math.min(1800, Math.max(280, orbit.dist * (1 + Math.sign(e.deltaY) * 0.08))); }, { passive: false });
+}
+
+// ---------- simplified view (2D canvas, no WebGL) ----------
+function startFallback(reason) {
+  const old = $('scene'), canvas = old.cloneNode(false); old.replaceWith(canvas);   // fresh canvas without a WebGL context
+  const ctx = canvas.getContext('2d');
+  $('viewMsg').textContent = reason; $('viewMsg').hidden = false;
+  attachOrbit(canvas);
+  const FLOOR = -BASE_H, D = (x, y, z) => [x, z, -y];        // Dobot -> (x, y up, z towards the viewer)
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+  const LIGHT = norm([0.4, 0.8, 0.45]);
+  const shade = (rgb, n) => { const k = 0.5 + 0.5 * Math.max(0, dot(n, LIGHT)); return `rgb(${rgb.map(v => Math.round(v * k)).join(',')})`; };
+  let cur = null, trail = [], preview = [];
+
+  function draw() {
+    const dpr = Math.min(devicePixelRatio || 1, 2), w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) { canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#0e1114'; ctx.fillRect(0, 0, w, h);
+    const { az, pol, dist, target: t } = orbit;
+    const cp = [t[0] + dist * Math.sin(pol) * Math.sin(az), t[1] + dist * Math.cos(pol), t[2] + dist * Math.sin(pol) * Math.cos(az)];
+    const f = norm(sub(t, cp)), r = norm(cross(f, [0, 1, 0])), u = cross(r, f), focal = (h / 2) / Math.tan(20 * Math.PI / 180);
+    const proj = p => { const d = sub(p, cp), zc = dot(d, f); return zc < 20 ? null : [w / 2 + dot(d, r) * focal / zc, h / 2 - dot(d, u) * focal / zc, focal / zc, zc]; };
+    const poly = (pts, color, width, dash) => {
+      ctx.beginPath(); let pen = false;
+      pts.forEach(p => { const q = proj(p); if (!q) { pen = false; return; } pen ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); pen = true; });
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+    };
+    const circle = (rad, z, n = 72) => Array.from({ length: n + 1 }, (_, i) => D(rad * Math.cos(i / n * 2 * Math.PI), rad * Math.sin(i / n * 2 * Math.PI), z));
+
+    // floor, reach, axes
+    for (let i = -400; i <= 400; i += 50) { poly([D(i, -400, FLOOR), D(i, 400, FLOOR)], i ? '#232b33' : '#3b4854', 1); poly([D(-400, i, FLOOR), D(400, i, FLOOR)], i ? '#232b33' : '#3b4854', 1); }
+    if (cur && cur.limits) { poly(circle(cur.limits.r_min, FLOOR), '#7a3535', 1.2); poly(circle(cur.limits.r_max, FLOOR), '#3d627c', 1.2); }
+    [[[110, 0, 0], '#ff5d5d'], [[0, 110, 0], '#3ecf8e'], [[0, 0, 110], '#5aa9ff']].forEach(([v, c]) => poly([D(0, -150, FLOOR), D(v[0], -150 + v[1], FLOOR + v[2])], c, 2.5));
+
+    // solids (base, tower) and the arm: sorted from the farthest
+    const items = [];
+    const face = (pts, rgb) => {
+      const n = norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))), c = pts.reduce((a, p) => [a[0] + p[0] / pts.length, a[1] + p[1] / pts.length, a[2] + p[2] / pts.length], [0, 0, 0]);
+      if (dot(n, sub(cp, c)) <= 0) return;                    // back-facing side
+      items.push({ d: dot(sub(c, cp), f), fn: () => { const q = pts.map(proj); if (q.some(v => !v)) return; ctx.beginPath(); q.forEach((v, i) => i ? ctx.lineTo(v[0], v[1]) : ctx.moveTo(v[0], v[1])); ctx.closePath(); ctx.fillStyle = shade(rgb, n); ctx.fill(); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1; ctx.stroke(); } });
+    };
+    const B = 79, z0 = FLOOR, z1 = FLOOR + 56, DARK = [74, 86, 98], BODY = [233, 237, 240];
+    const c8 = [[-B, -B], [B, -B], [B, B], [-B, B]];
+    face(c8.map(c => D(c[0], c[1], z1)), DARK);
+    c8.forEach((c, i) => { const n2 = c8[(i + 1) % 4]; face([D(c[0], c[1], z0), D(n2[0], n2[1], z0), D(n2[0], n2[1], z1), D(c[0], c[1], z1)], DARK); });
+    const N = 28, ring2 = (rad, z) => Array.from({ length: N }, (_, i) => D(rad * Math.cos(i / N * 2 * Math.PI), rad * Math.sin(i / N * 2 * Math.PI), z));
+    const lo = ring2(60, z1), hi = ring2(52, 0);
+    face(hi, BODY); lo.forEach((p, i) => face([p, lo[(i + 1) % N], hi[(i + 1) % N], hi[i]], BODY));
+
+    if (cur) {
+      const { j1, j2, j3 } = solve(cur), c = Math.cos(j1), sn = Math.sin(j1), P = (rr, z) => D(rr * c, rr * sn, z);
+      const re = L1 * Math.sin(j2), ze = L1 * Math.cos(j2), rw = re + L2 * Math.cos(j3), zw = ze - L2 * Math.sin(j3);
+      const S = P(0, 0), E = P(re, ze), W = P(rw, zw), tcp = (cur.pose && cur.live) ? D(cur.pose[0], cur.pose[1], cur.pose[2]) : W, bend = [tcp[0], W[1], tcp[2]];
+      const seg = (a, b, diam, color) => { const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], q = proj(m); if (q) items.push({ d: q[3] - 1000, fn: () => poly([a, b], color, Math.max(2, diam * q[2])) }); };
+      const dotAt = (p, rad, color) => { const q = proj(p); if (q) items.push({ d: q[3] - 1000 - 1, fn: () => { ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(2, rad * q[2]), 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill(); } }); };
+      seg(S, E, 34, '#dfe4e8'); seg(E, W, 28, '#eef1f3'); seg(W, bend, 14, '#55616d'); seg(bend, tcp, 11, '#55616d');
+      dotAt(S, 26, '#4a5662'); dotAt(E, 21, '#4a5662'); dotAt(W, 12, '#4a5662'); dotAt(tcp, 10, cur.suction ? '#3ecf8e' : '#f2a900');
+      if (cur.live && cur.pose) { const last = trail[trail.length - 1]; if (!last || Math.hypot(...sub(last, tcp)) > 1.5) { trail.push(tcp); if (trail.length > 400) trail.shift(); } }
+    }
+    items.sort((a, b) => b.d - a.d).forEach(it => it.fn());   // the arm always above the base (hence -1000)
+    if (trail.length > 1) poly(trail, '#f2a900', 1.5);
+    if (preview.length) {
+      const pts = preview.map(p => D(p[0], p[1], p[2])), first = (cur && cur.pose) ? D(cur.pose[0], cur.pose[1], cur.pose[2]) : pts[0];
+      poly([first, ...pts], '#5aa9ff', 1.5, [7, 6]);
+      pts.forEach(p => { const q = proj(p); if (q) { ctx.beginPath(); ctx.arc(q[0], q[1], 5, 0, 2 * Math.PI); ctx.fillStyle = '#5aa9ff'; ctx.fill(); } });
+    }
+    requestAnimationFrame(draw);
+  }
+  view3d = { update: s => { cur = s; }, setPreview: p => { preview = p || []; } };
+  if (state) cur = state;
+  draw();
+}
+
+// ---------- 3D view (Three.js) ----------
+function start() {
+  const T = THREE, canvas = $('scene');
+  const renderer = new T.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new T.Scene(); scene.background = new T.Color(0x0e1114);
+  const cam = new T.PerspectiveCamera(40, 1, 10, 5000);
+  scene.add(new T.HemisphereLight(0xffffff, 0x30363d, 0.95));
+  const sun = new T.DirectionalLight(0xffffff, 0.55); sun.position.set(300, 600, 400); scene.add(sun);
+
+  // Dobot frame (X forward, Y left, Z up) -> Three (x, y up, z towards the viewer)
+  const V = (x, y, z) => new T.Vector3(x, z, -y);
+  const FLOOR = -BASE_H;
+
+  const grid = new T.GridHelper(800, 16, 0x3b4854, 0x232b33); grid.position.y = FLOOR; scene.add(grid);
+  const ring = (r, color) => {
+    const pts = []; for (let i = 0; i <= 96; i++) { const a = i / 96 * Math.PI * 2; pts.push(V(r * Math.cos(a), r * Math.sin(a), FLOOR + 0.5)); }
+    return new T.Line(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color }));
+  };
+  let rings = null;
+  const arrow = (dir, color) => scene.add(new T.ArrowHelper(dir, V(0, -150, FLOOR + 1), 110, color, 16, 9));
+  arrow(V(1, 0, 0), 0xff5d5d); arrow(V(0, 1, 0), 0x3ecf8e); arrow(V(0, 0, 1), 0x5aa9ff);
+
+  const mat = c => new T.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.15 });
+  const body = mat(0xe9edf0), dark = mat(0x39434d), amber = mat(0xf2a900);
+  const base = new T.Mesh(new T.BoxGeometry(158, 56, 158), dark); base.position.y = FLOOR + 28; scene.add(base);
+  const turret = new T.Mesh(new T.CylinderGeometry(52, 60, BASE_H - 56, 40), body); turret.position.y = FLOOR + 56 + (BASE_H - 56) / 2; scene.add(turret);
+
+  const UP = new T.Vector3(0, 1, 0);
+  const link = (radius, m) => { const g = new T.Mesh(new T.CylinderGeometry(radius, radius, 1, 20), m); scene.add(g); return g; };
+  const place = (mesh, a, b) => {
+    const d = new T.Vector3().subVectors(b, a), len = d.length();
+    mesh.visible = len > 0.5; if (!mesh.visible) return;
+    mesh.position.copy(a).addScaledVector(d, 0.5); mesh.scale.set(1, len, 1);
+    mesh.quaternion.setFromUnitVectors(UP, d.normalize());
+  };
+  const ball = (r, m) => { const s = new T.Mesh(new T.SphereGeometry(r, 20, 14), m); scene.add(s); return s; };
+  const rear = link(17, body), fore = link(14, body), toolH = link(8, dark), toolV = link(6, dark);
+  const shoulder = ball(26, dark), elbow = ball(21, dark), wrist = ball(12, dark), tip = ball(10, amber);
+
+  const trailGeo = new T.BufferGeometry(); let trailPts = [];
+  scene.add(new T.Line(trailGeo, new T.LineBasicMaterial({ color: 0xf2a900 })));
+  const previewGroup = new T.Group(); scene.add(previewGroup);
+
+  function update(s) {
+    if (!rings && s.limits) { rings = [ring(s.limits.r_min, 0x5b2b2b), ring(s.limits.r_max, 0x2f4a5e)]; rings.forEach(r => scene.add(r)); }
+    const { j1, j2, j3 } = solve(s);
+    const c = Math.cos(j1), sn = Math.sin(j1);
+    const P = (r, z) => V(r * c, r * sn, z);
+    const re = L1 * Math.sin(j2), ze = L1 * Math.cos(j2);
+    const rw = re + L2 * Math.cos(j3), zw = ze - L2 * Math.sin(j3);
+    const S = P(0, 0), E = P(re, ze), W = P(rw, zw);
+    const tcp = (s.pose && s.live) ? V(s.pose[0], s.pose[1], s.pose[2]) : W.clone();
+    const bend = new T.Vector3(tcp.x, W.y, tcp.z);
+    place(rear, S, E); place(fore, E, W); place(toolH, W, bend); place(toolV, bend, tcp);
+    shoulder.position.copy(S); elbow.position.copy(E); wrist.position.copy(W); tip.position.copy(tcp);
+    turret.rotation.y = j1;
+    tip.material.emissive.setHex(s.suction ? 0x3ecf8e : 0x000000);
+    if (s.live && s.pose) {
+      const last = trailPts[trailPts.length - 1];
+      if (!last || last.distanceTo(tcp) > 1.5) {
+        trailPts.push(tcp.clone()); if (trailPts.length > 400) trailPts.shift();
+        trailGeo.setFromPoints(trailPts);
+      }
+    }
+  }
+  function setPreview(points) {
+    while (previewGroup.children.length) previewGroup.remove(previewGroup.children[0]);
+    if (!points || !points.length) return;
+    const pts = points.map(p => V(p[0], p[1], p[2]));
+    const startPt = (state && state.pose) ? V(state.pose[0], state.pose[1], state.pose[2]) : pts[0];
+    const line = new T.Line(new T.BufferGeometry().setFromPoints([startPt, ...pts]),
+      new T.LineDashedMaterial({ color: 0x5aa9ff, dashSize: 8, gapSize: 6 }));
+    line.computeLineDistances(); previewGroup.add(line);
+    pts.forEach(p => { const m = new T.Mesh(new T.SphereGeometry(6, 14, 10), new T.MeshBasicMaterial({ color: 0x5aa9ff })); m.position.copy(p); previewGroup.add(m); });
+  }
+
+  const target = new T.Vector3(...orbit.target);
+  const placeCam = () => {
+    const { az, pol, dist } = orbit;
+    cam.position.set(target.x + dist * Math.sin(pol) * Math.sin(az), target.y + dist * Math.cos(pol), target.z + dist * Math.sin(pol) * Math.cos(az));
+    cam.lookAt(target);
+  };
+  attachOrbit(canvas);
+
+  function frame() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
+      renderer.setSize(w, h, false); cam.aspect = w / Math.max(h, 1); cam.updateProjectionMatrix();
+    }
+    placeCam(); renderer.render(scene, cam); requestAnimationFrame(frame);
+  }
+  view3d = { update, setPreview };
+  if (state) update(state);
+  frame();
+}
+
+buildJog();
+poll();
+camLoop();
+</script>
+</body>
+</html>
